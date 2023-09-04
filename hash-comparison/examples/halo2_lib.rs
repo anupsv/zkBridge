@@ -6,6 +6,7 @@ use halo2_base::{
 use halo2_base::{gates::GateChip, utils::ScalarField, AssignedValue, Context};
 use halo2_scaffold::scaffold::{cmd::Cli, run};
 use poseidon::PoseidonChip;
+use ethers_core::utils::keccak256;
 use serde::{Deserialize, Serialize};
 
 const T: usize = 2;
@@ -16,7 +17,7 @@ const R_P: usize = 57;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
     pub x: String, // field element, but easier to deserialize as a string
-    pub keccak_hash: String, // field element, but easier to deserialize as a string
+    pub keccak_hash: Vec<u8>, // field element, but easier to deserialize as a string
     pub poseidon_hash: String, // field element, but easier to deserialize as a string
 }
 
@@ -32,7 +33,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
     // first we load a private input `x` (let's not worry about public inputs for now)
     let hash_input = ctx.load_witness(F::from_str_vartime(&inp.x).unwrap());
     let poseidon_hash_input = ctx.load_witness(F::from_str_vartime(&inp.poseidon_hash).unwrap());
-
+    let keccak_loaded = ctx.assign_witnesses(inp.keccak_hash.iter().map(|each| F::from(*each as u64)));
     make_public.extend([poseidon_hash_input]);
 
     // create a Gate chip that contains methods for basic arithmetic operations
@@ -42,7 +43,14 @@ fn some_algorithm_in_zk<F: ScalarField>(
     let hash = poseidon.squeeze(ctx, &gate).unwrap();
     make_public.push(hash);
     assert_eq!(hash.value(), poseidon_hash_input.value());
-    println!("x: {:?}, poseidon(x): {:?}", poseidon_hash_input.value(), hash.value());
+    // println!("x: {:?}, poseidon(x): {:?}", poseidon_hash_input.value(), hash.value());
+
+    let out_expected = keccak256(inp.x.as_bytes());
+
+    for (b1, b2) in keccak_loaded.into_iter().zip(out_expected) {
+        assert_eq!(b1.value().get_lower_32(), b2 as u32);
+        // print!("{:02x}", b2);
+    }
 }
 
 fn main() {
